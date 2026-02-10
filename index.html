@@ -1,34 +1,176 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="cs">
 <head>
-    <title>XRP Portfolio Tracker</title>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; }
-        #portfolio { margin: 20px; padding: 20px; border: 1px solid #ccc; }
-        h1 { color: #0056b3; }
-        .price { font-size: 1.2em; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dětské portfolio (XRP) – realtime</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 8px; }
+    .meta { color: #555; margin-bottom: 16px; }
+    table { border-collapse: collapse; width: 100%; max-width: 720px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e6e6e6; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    tfoot td { font-weight: 700; }
+    .card { max-width: 720px; padding: 16px; border: 1px solid #eee; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px; }
+    .pill { padding: 8px 10px; border: 1px solid #eee; border-radius: 999px; background: #fafafa; }
+    .ok { color: #0a7a2f; }
+    .bad { color: #a40000; }
+    button { cursor: pointer; padding: 10px 12px; border-radius: 10px; border: 1px solid #ddd; background: white; }
+    button:hover { background: #f6f6f6; }
+    code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
+  </style>
 </head>
 <body>
-    <div id="portfolio">
-        <h1>XRP Portfolio Tracker</h1>
-        <div class="price" id="xrp-price">Loading XRP Price...</div>
+  <div class="card">
+    <h1>Portfolio dětí (XRP) – realtime</h1>
+    <div class="meta">
+      Zdroj cen: <code>CoinGecko</code> (XRP/USD) + <code>Frankfurter</code> (USD→CZK).
+      Aktualizace každých <span id="refreshSec">20</span> s.
     </div>
-    <script>
-        const fetchXRPPrice = async () => {
-            try {
-                const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd');
-                const price = response.data.ripple.usd;
-                document.getElementById('xrp-price').innerText = `Current XRP Price: $${price}`;
-            } catch (error) {
-                console.error('Error fetching XRP price:', error);
-                document.getElementById('xrp-price').innerText = 'Error fetching price';
-            }
-        };
 
-        setInterval(fetchXRPPrice, 60000); // Fetch price every minute
-        fetchXRPPrice(); // Initial fetch
-    </script>
+    <div class="row">
+      <div class="pill">XRP/USD: <strong id="xrpUsd">—</strong></div>
+      <div class="pill">USD/CZK: <strong id="usdCzk">—</strong></div>
+      <div class="pill">1 XRP v CZK: <strong id="xrpCzk">—</strong></div>
+      <div class="pill">Stav: <strong id="status">—</strong></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Dítě</th>
+          <th>XRP</th>
+          <th>Hodnota (USD)</th>
+          <th>Hodnota (CZK)</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+      <tfoot>
+        <tr>
+          <td>Celkem</td>
+          <td id="totXrp">—</td>
+          <td id="totUsd">—</td>
+          <td id="totCzk">—</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="row" style="margin-top:16px;">
+      <button id="btnRefresh">Obnovit teď</button>
+      <div class="meta" style="margin: 10px 0 0;">
+        Poslední update: <strong id="lastUpdate">—</strong>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // === Nastavení portfolia ===
+    const kids = [
+      { name: "Ema", xrp: 968.3*1,225 },
+      { name: "Jáchym", xrp: 964.3*1,225 },
+      { name: "Adam", xrp: 373.3*1,225 },
+    ];
+
+    // === Interval aktualizace ===
+    const REFRESH_MS = 20_000;
+
+    // === API endpoints ===
+    // XRP/USD (CoinGecko): https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd
+    const COINGECKO_XRP_USD =
+      "https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd";
+
+    // USD->CZK (Frankfurter): https://api.frankfurter.app/latest?from=USD&to=CZK
+    const FRANKFURTER_USD_CZK =
+      "https://api.frankfurter.app/latest?from=USD&to=CZK";
+
+    const el = (id) => document.getElementById(id);
+
+    const fmt2 = (n) => (Number.isFinite(n) ? n.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
+    const fmt4 = (n) => (Number.isFinite(n) ? n.toLocaleString("cs-CZ", { minimumFractionDigits: 4, maximumFractionDigits: 4 }) : "—");
+    const fmt0 = (n) => (Number.isFinite(n) ? n.toLocaleString("cs-CZ") : "—");
+
+    function setStatus(ok, msg) {
+      const s = el("status");
+      s.textContent = msg;
+      s.className = ok ? "ok" : "bad";
+    }
+
+    function renderTable(xrpUsd, usdCzk) {
+      const tbody = el("rows");
+      tbody.innerHTML = "";
+
+      const xrpCzk = xrpUsd * usdCzk;
+
+      let totXrp = 0, totUsd = 0, totCzk = 0;
+
+      for (const k of kids) {
+        const usd = k.xrp * xrpUsd;
+        const czk = usd * usdCzk;
+        totXrp += k.xrp;
+        totUsd += usd;
+        totCzk += czk;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${k.name}</td>
+          <td>${fmt0(k.xrp)}</td>
+          <td>${fmt2(usd)}</td>
+          <td>${fmt2(czk)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      el("totXrp").textContent = fmt0(totXrp);
+      el("totUsd").textContent = fmt2(totUsd);
+      el("totCzk").textContent = fmt2(totCzk);
+
+      el("xrpUsd").textContent = fmt4(xrpUsd);
+      el("usdCzk").textContent = fmt4(usdCzk);
+      el("xrpCzk").textContent = fmt4(xrpCzk);
+    }
+
+    async function fetchJson(url) {
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status} pro ${url}`);
+      return r.json();
+    }
+
+    async function refresh() {
+      try {
+        setStatus(true, "Načítám…");
+
+        // Paralelně stáhneme obě ceny
+        const [xrpData, fxData] = await Promise.all([
+          fetchJson(COINGECKO_XRP_USD),
+          fetchJson(FRANKFURTER_USD_CZK),
+        ]);
+
+        const xrpUsd = xrpData?.ripple?.usd;
+        const usdCzk = fxData?.rates?.CZK;
+
+        if (!Number.isFinite(xrpUsd) || !Number.isFinite(usdCzk)) {
+          throw new Error("Nepovedlo se načíst validní kurzy (XRP/USD nebo USD/CZK).");
+        }
+
+        renderTable(xrpUsd, usdCzk);
+
+        el("lastUpdate").textContent = new Date().toLocaleString("cs-CZ");
+        setStatus(true, "OK");
+      } catch (e) {
+        console.error(e);
+        setStatus(false, "Chyba při načítání kurzů");
+      }
+    }
+
+    // UI
+    el("btnRefresh").addEventListener("click", refresh);
+
+    // Auto-refresh
+    el("refreshSec").textContent = Math.round(REFRESH_MS / 1000);
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  </script>
 </body>
 </html>
