@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>XRP Portfolio Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #portfolio { margin: 20px; padding: 20px; border: 1px solid #ccc; }
+        h1 { color: #0056b3; }
+        .price { font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <div id="portfolio">
+        <h1>XRP Portfolio Tracker</h1>
+        <div class="price" id="xrp-price">Loading XRP Price...</div>
+    </div>
+    <script>
+        const fetchXRPPrice = async () => {
+            try {
+                const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd');
+                const price = response.data.ripple.usd;
+                document.getElementById('xrp-price').innerText = `Current XRP Price: $${price}`;
+            } catch (error) {
+                console.error('Error fetching XRP price:', error);
+                document.getElementById('xrp-price').innerText = 'Error fetching price';
+            }
+        };
+
+        setInterval(fetchXRPPrice, 60000); // Fetch price every minute
+        fetchXRPPrice(); // Initial fetch
+    </script>
+</body>
+</html>
